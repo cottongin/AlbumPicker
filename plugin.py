@@ -48,7 +48,7 @@ class AlbumPicker(callbacks.Plugin):
     def __init__(self, irc):
         self.__parent = super(AlbumPicker, self)
         self.__parent.__init__(irc)
-        self.current_albums = []
+        self.current_albums = {}
 
     def die(self):
         del self.current_albums
@@ -58,19 +58,24 @@ class AlbumPicker(callbacks.Plugin):
     @wrap([optional("text")])
     def loadchanger(self, irc, msg, args, albums):
         """Load up the disc changer"""
+        if self.current_albums:
+            irc.reply("I already have some albums loaded!")
+            return
         if not albums:
             irc.reply("I need a list of albums (ex: 1t13 2t12t11)")
             return
         albums = albums.lower()
         albums = albums.split()
-        for album in albums:
+
+        for playlist_idx, album in enumerate(albums, start=1):
             # [INDEX]t[NUMBER OF TRACKS]t[NUMBER OF TRACKS]
-            tmp = []
-            for disc in album.split("t")[1:]:
+            tmp = {}
+            for discnum, disc in enumerate(album.split("t")[1:], start=1):
                 # create a temporary track list of each disc for tracking
                 # whether the track has been played
-                tmp.append(list(range(1, int(disc)+1)))
-            self.current_albums.append(tmp)
+                # tmp.append(list(range(1, int(disc)+1)))
+                tmp[discnum] = list(range(1, int(disc)+1))
+            self.current_albums[playlist_idx] = tmp
         
         irc.replySuccess()
         return
@@ -79,7 +84,7 @@ class AlbumPicker(callbacks.Plugin):
     @wrap
     def clearchanger(self, irc, msg, args):
         """clear the CD changer out"""
-        self.current_albums = []
+        self.current_albums = {}
         return irc.replySuccess()
 
     @wrap
@@ -89,40 +94,54 @@ class AlbumPicker(callbacks.Plugin):
             irc.reply("No albums loaded in the changer!")
             return
 
-        # remove empties
-        self.current_albums = list(filter(None, self.current_albums))
+        # # remove empties
+        for alb in self.current_albums:
+            self.current_albums[alb] = {k: v for k, v in self.current_albums[alb].items() if v}
+        temp_albums = {*self.current_albums}
+        for alb in temp_albums:
+            try:
+                if not self.current_albums[alb]:
+                    self.current_albums.pop(alb)
+            except:
+                continue
+        # self.current_albums = list(filter(None, self.current_albums))
+
         if not self.current_albums:
             irc.reply("I've run out of songs, load some more")
             return
 
         # first pick an album
-        album_index = random.choice(range(len(self.current_albums)))
-        album_choice = self.current_albums[album_index]
+        album_index, album_choice = random.choice(list(filter(None, self.current_albums.items())))
+        if not album_choice:
+            irc.reply("Sorry, I couldn't pick an album")
+            return
 
-        # now pick a disc
-        disc_index = random.choice(range(len(album_choice)))
-        disc_choice = album_choice[disc_index]
+        # number_of_discs = len(self.current_albums[album_index])
+
+        disc_index, disc_choice = random.choice(list(album_choice.items()))
+        if not disc_choice:
+            irc.reply("Sorry, I couldn't pick a song")
+            return
 
         # now pick a song and pop it so it doesn't get picked again
-        try:
-            song_choice = self.current_albums[album_index][disc_index].pop(
-                random.choice(range(len(disc_choice)))
-            )
-            # if the disc is empty/played, remove it
-            if not self.current_albums[album_index][disc_index]:
-                self.current_albums[album_index].pop(disc_index)
-        except IndexError as err:
-            # disc list is empty? pop the disc
-            self.current_albums[album_index].pop(disc_index)
+        song_choice = self.current_albums[album_index][disc_index].pop(
+            random.choice(range(len(disc_choice)))
+        )
 
-        reply_string = "I picked Track \x02#{}\x02 on Disc {} of Album #{}"
+        reply_string = "{nick} picked {track} from {disc} on {album}"
+
         reply_string = reply_string.format(
-            song_choice, 
-            disc_index + 1,
-            album_index + 1,
+            nick=msg.nick,
+            track=ircutils.bold(ircutils.underline("Track #{}".format(song_choice))), 
+            disc=ircutils.mircColor(ircutils.bold("Disc/Side {}".format(disc_index)), "blue"),
+            album=ircutils.mircColor(ircutils.bold("Album #{}".format(album_index)), "green"),
         )
 
         irc.reply(reply_string)
+        # # remove empties
+        # self.current_albums = {k: v for k, v in self.current_albums.items() if v}
+        for alb in self.current_albums:
+            self.current_albums[alb] = {k: v for k, v in self.current_albums[alb].items() if v}
         return
 
 
